@@ -70,7 +70,11 @@ class RAGMemory:
         try:
             vec = self._embed(issue_text)
             self._index.add(vec)
-            self._metadata.append({"issue_text": issue_text[:500], "result": result})
+            self._metadata.append({
+                "type": "fix",
+                "issue_text": issue_text[:500],
+                "result": result
+            })
             # Persist
             faiss.write_index(self._index, str(_INDEX_PATH))
             with open(_META_PATH, "wb") as f:
@@ -79,8 +83,32 @@ class RAGMemory:
         except Exception as e:
             logger.warning("RAG store failed: %s", e)
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[dict]:
-        """Retrieve the top-k most similar past results."""
+    def store_document(self, text: str, metadata: dict) -> None:
+        """Store a generic knowledge document chunk."""
+        if not self._enabled:
+            return
+        try:
+            # Chunking might be needed for very large texts, but let's keep it simple for now
+            vec = self._embed(text[:2000]) # Embed the first 2k chars
+            self._index.add(vec)
+            self._metadata.append({
+                "type": "document",
+                "text": text,
+                "metadata": metadata
+            })
+            faiss.write_index(self._index, str(_INDEX_PATH))
+            with open(_META_PATH, "wb") as f:
+                pickle.dump(self._metadata, f)
+            logger.info("RAG memory: stored document '%s'", metadata.get('filename', 'unknown'))
+        except Exception as e:
+            logger.warning("RAG document store failed: %s", e)
+
+    def list_documents(self) -> list[dict]:
+        """List all stored documents (not fixes)."""
+        return [m for m in self._metadata if m.get("type") == "document"]
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[dict]:
+        """Retrieve the top-k most similar past results or documents."""
         if not self._enabled or self._index.ntotal == 0:
             return []
         try:
@@ -88,7 +116,7 @@ class RAGMemory:
             distances, indices = self._index.search(vec, min(top_k, self._index.ntotal))
             results = []
             for idx, dist in zip(indices[0], distances[0]):
-                if idx >= 0 and dist < 1.5:  # similarity threshold
+                if idx >= 0 and dist < 1.8:  # slightly higher threshold
                     results.append(self._metadata[idx])
             return results
         except Exception as e:
@@ -96,20 +124,33 @@ class RAGMemory:
             return []
 
     def build_context_prompt(self, query: str) -> str:
-        """Build a context string from similar past fixes for injection into agent prompts."""
+        """Build a context string for injection into agent prompts."""
         similar = self.retrieve(query)
         if not similar:
             return ""
-        parts = ["=== Similar Past Fixes (RAG Memory) ==="]
-        for i, entry in enumerate(similar, 1):
-            r = entry.get("result", {})
-            parts.append(
-                f"\n[Past Fix {i}]\n"
-                f"Issue: {entry.get('issue_text', '')[:200]}\n"
-                f"Classification: {r.get('classification', 'unknown')}\n"
-                f"Root Cause: {r.get('root_cause', '')[:300]}\n"
-                f"Patch (excerpt): {r.get('patch_diff', '')[:400]}\n"
-            )
+        
+        parts = ["=== RAG Knowledge Retrieval ==="]
+        fixes = [s for s in similar if s.get("type") == "fix"]
+        docs = [s for s in similar if s.get("type") == "document"]
+
+        if fixes:
+            parts.append("\n[Similar Past Fixes]")
+            for i, entry in enumerate(fixes, 1):
+                r = entry.get("result", {})
+                parts.append(
+                    f"{i}. Issue: {entry.get('issue_text', '')[:150]}\n"
+                    f"   Solution: {r.get('root_cause', '')[:200]}"
+                )
+
+        if docs:
+            parts.append("\n[Related Documentation]")
+            for i, entry in enumerate(docs, 1):
+                m = entry.get("metadata", {})
+                parts.append(
+                    f"{i}. File: {m.get('filename', 'unknown')}\n"
+                    f"   Content: {entry.get('text', '')[:800]}..."
+                )
+        
         return "\n".join(parts)
 
 

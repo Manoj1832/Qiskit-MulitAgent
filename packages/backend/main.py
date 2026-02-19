@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -629,6 +629,90 @@ async def list_pr_agent_commands():
         "usage": "POST /pr-agent with {pr_url, command}",
     }
 
+@app.post("/upload-doc", tags=["Knowledge Base"])
+async def upload_document(
+    file: UploadFile = File(...),
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Upload a document (PDF, Markdown, or Text) to the RAG knowledge base.
+    The agent will use this information to better understand the codebase or domain.
+    """
+    content = await file.read()
+    filename = file.filename
+    text = ""
+
+    if filename.endswith(".pdf"):
+        from app.algo.pdf_utils import extract_text_from_pdf
+        text = extract_text_from_pdf(content)
+        if not text:
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+    else:
+        # Assume text/markdown
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="Only UTF-8 encoded text or PDF files are supported")
+
+    rag = get_rag_memory()
+    rag.store_document(text, {"filename": filename, "uploaded_at": datetime.now().isoformat()})
+    
+    return {"status": "success", "filename": filename, "message": f"Successfully ingested {filename}"}
+
+
+@app.get("/list-docs", tags=["Knowledge Base"])
+async def list_documents(_user: dict = Depends(get_current_user)):
+    """List all documents currently in the RAG knowledge base."""
+    rag = get_rag_memory()
+    docs = rag.list_documents()
+    return {"documents": [
+        {"filename": d["metadata"]["filename"], "uploaded_at": d["metadata"]["uploaded_at"]}
+        for d in docs
+    ]}
+
+
+@app.post("/ingest-url", tags=["Knowledge Base"])
+async def ingest_url(
+    payload: dict,
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Scrape a URL and store its content in the RAG knowledge base.
+    """
+    url = payload.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    try:
+        import httpx
+        import re
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, follow_redirects=True, timeout=10.0)
+            resp.raise_for_status()
+            
+            # Simple HTML to text (not perfect, but good for demo)
+            html = resp.text
+            # Remove scripts and styles
+            html = re.sub(r'<(script|style).*?>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            # Remove all tags
+            text = re.sub(r'<.*?>', ' ', html)
+            # Normalize whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+            
+            if len(text) < 100:
+                raise HTTPException(status_code=400, detail="Could not extract meaningful text from URL")
+
+            rag = get_rag_memory()
+            rag.store_document(text, {
+                "filename": url.split("/")[-1] or "web-page",
+                "url": url,
+                "uploaded_at": datetime.now().isoformat()
+            })
+            
+            return {"status": "success", "url": url, "message": "Successfully ingested web content"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to ingest URL: {str(e)}")
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
