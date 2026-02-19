@@ -1,1 +1,1 @@
-printf(i am cheking for error)
+Replace with: print('i am checking for error')
