@@ -172,11 +172,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.type === "GET_TOKEN_STATUS") {
-        chrome.storage.local.get(["jwt_token", "jwt_expires_at"]).then((stored) => {
-            sendResponse({
-                hasToken: !!stored.jwt_token,
-                expiresAt: stored.jwt_expires_at,
+        getToken().then((token) => {
+            chrome.storage.local.get(["jwt_expires_at"]).then((stored) => {
+                sendResponse({
+                    hasToken: !!token,
+                    expiresAt: stored.jwt_expires_at,
+                    token: token,
+                });
             });
+        }).catch((err) => {
+            sendResponse({ hasToken: false, error: err.message });
         });
         return true;
     }

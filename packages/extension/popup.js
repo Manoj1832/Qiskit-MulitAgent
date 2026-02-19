@@ -304,12 +304,7 @@ function renderResults(data) {
     };
 }
 
-// ── Init ──────────────────────────────────────────────────────────────────────
-(async () => {
-    await Promise.all([checkBackendHealth(), detectCurrentPage()]);
-    checkTokenStatus();
-    initPRAgentTools();
-})();
+// Note: Single init block is at the bottom of the file (after Knowledge Base section).
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -603,10 +598,38 @@ function copyAllTests() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
     await Promise.all([checkBackendHealth(), detectCurrentPage()]);
+    // Ensure token is ready before loading knowledge base docs
+    await ensureToken();
     checkTokenStatus();
     initPRAgentTools();
     initKnowledgeBase();
 })();
+
+/**
+ * Wait for the background script to have a valid token.
+ * Retries a few times with a small delay since the background service worker
+ * might still be exchanging the API key for a JWT.
+ */
+function ensureToken() {
+    return new Promise((resolve) => {
+        let attempts = 0;
+        const maxAttempts = 5;
+
+        function tryGetToken() {
+            chrome.runtime.sendMessage({ type: "GET_TOKEN_STATUS" }, (resp) => {
+                if (resp?.hasToken && resp.token) {
+                    resolve(resp.token);
+                } else if (++attempts < maxAttempts) {
+                    setTimeout(tryGetToken, 400);
+                } else {
+                    resolve(null); // give up, let individual calls handle 401
+                }
+            });
+        }
+
+        tryGetToken();
+    });
+}
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -706,11 +729,27 @@ async function handleUrlIngest() {
 }
 
 async function refreshDocs() {
-    const token = await getStoredToken();
+    let token = await getStoredToken();
+
+    // If no token yet, wait and retry once
+    if (!token) {
+        token = await ensureToken();
+    }
+
+    if (!token) {
+        console.warn("[SWE-Agent] No auth token available — skipping doc list.");
+        return;
+    }
+
     try {
         const resp = await fetch(`${BACKEND_URL}/list-docs`, {
-            headers: (token ? { Authorization: `Bearer ${token}` } : {}),
+            headers: { Authorization: `Bearer ${token}` },
         });
+        if (resp.status === 401) {
+            // Token expired — clear it so the next call re-fetches
+            chrome.storage.local.remove(["jwt_token", "jwt_expires_at"]);
+            return;
+        }
         if (!resp.ok) return;
         const data = await resp.json();
         renderDocsList(data.documents || []);
