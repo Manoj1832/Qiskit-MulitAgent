@@ -1,2 +1,2 @@
-System.out.print("hi")
+Replace with: print('hi')
 abcd
