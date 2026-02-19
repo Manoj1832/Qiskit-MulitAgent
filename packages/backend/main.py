@@ -496,8 +496,8 @@ async def create_pull_request(
 
 from app.engine.utils.github_helper import post_pr_comment
 from app.tools.pr_reviewer import PRReviewerTool, format_review_as_markdown
-from app.tools.code_suggestions import CodeSuggestionsTool
-from app.tools.test_generator import TestGeneratorTool
+from app.tools.code_suggestions import CodeSuggestionsTool, format_suggestions_as_markdown
+from app.tools.test_generator import TestGeneratorTool, format_tests_as_markdown
 from app.tools.pr_agent import PRAgentDispatcher, COMMAND_DESCRIPTIONS
 from app.tools.pr_chat import PRChatTool, PRChatRequest, ChatMessage
 
@@ -588,11 +588,21 @@ async def suggest_fixes(
     - One-sentence summaries
     """
     tool = CodeSuggestionsTool()
+    repo_full = f"{request.repo_owner}/{request.repo_name}"
     result = await tool.run(
-        repo=f"{request.repo_owner}/{request.repo_name}",
+        repo=repo_full,
         pr_number=request.pr_number,
         diff_override=request.diff_content,
     )
+
+    if request.publish_to_github:
+        try:
+            md = format_suggestions_as_markdown(result)
+            post_pr_comment(repo_full, request.pr_number, md)
+            logger.info(f"Published suggestions to {repo_full}#{request.pr_number}")
+        except Exception as e:
+            logger.error(f"Failed to publish suggestions comment: {e}")
+
     return result.model_dump()
 
 
@@ -610,11 +620,21 @@ async def generate_tests(
     - Test descriptions and priority levels
     """
     tool = TestGeneratorTool()
+    repo_full = f"{request.repo_owner}/{request.repo_name}"
     result = await tool.run(
-        repo=f"{request.repo_owner}/{request.repo_name}",
+        repo=repo_full,
         pr_number=request.pr_number,
         diff_override=request.diff_content,
     )
+
+    if request.publish_to_github:
+        try:
+            md = format_tests_as_markdown(result)
+            post_pr_comment(repo_full, request.pr_number, md)
+            logger.info(f"Published tests to {repo_full}#{request.pr_number}")
+        except Exception as e:
+            logger.error(f"Failed to publish tests comment: {e}")
+
     return result.model_dump()
 
 
