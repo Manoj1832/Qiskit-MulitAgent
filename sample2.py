@@ -1,2 +1,2 @@
-System.out.print("hi")
+Replace 'System.out.print("hi")' with 'print("hi")'.
 abcd
