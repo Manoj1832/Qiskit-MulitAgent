@@ -653,6 +653,56 @@ function initKnowledgeBase() {
         const file = dt.files[0];
         if (file) handleFileUpload(file);
     });
+
+    // 4. URL ingestion
+    document.getElementById("ingest-url-btn").addEventListener("click", handleUrlIngest);
+    document.getElementById("url-input").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") handleUrlIngest();
+    });
+}
+
+async function handleUrlIngest() {
+    const urlInput = document.getElementById("url-input");
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    if (!url.startsWith("http")) {
+        alert("Please enter a valid URL starting with http:// or https://");
+        return;
+    }
+
+    const token = await getStoredToken();
+    uploadStatus.style.display = "flex";
+    uploadStatusText.textContent = `Scraping ${url}...`;
+
+    try {
+        const resp = await fetch(`${BACKEND_URL}/ingest-url`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ url }),
+        });
+
+        if (!resp.ok) {
+            const errData = await resp.json();
+            throw new Error(errData.detail || "URL ingestion failed");
+        }
+
+        uploadStatusText.textContent = "✅ URL Ingested!";
+        urlInput.value = "";
+        setTimeout(() => {
+            uploadStatus.style.display = "none";
+        }, 2000);
+
+        refreshDocs();
+    } catch (err) {
+        uploadStatusText.textContent = `❌ ${err.message}`;
+        setTimeout(() => {
+            uploadStatus.style.display = "none";
+        }, 4000);
+    }
 }
 
 async function refreshDocs() {

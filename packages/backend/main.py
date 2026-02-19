@@ -670,6 +670,50 @@ async def list_documents(_user: dict = Depends(get_current_user)):
         for d in docs
     ]}
 
+
+@app.post("/ingest-url", tags=["Knowledge Base"])
+async def ingest_url(
+    payload: dict,
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Scrape a URL and store its content in the RAG knowledge base.
+    """
+    url = payload.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    try:
+        import httpx
+        import re
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, follow_redirects=True, timeout=10.0)
+            resp.raise_for_status()
+            
+            # Simple HTML to text (not perfect, but good for demo)
+            html = resp.text
+            # Remove scripts and styles
+            html = re.sub(r'<(script|style).*?>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            # Remove all tags
+            text = re.sub(r'<.*?>', ' ', html)
+            # Normalize whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+            
+            if len(text) < 100:
+                raise HTTPException(status_code=400, detail="Could not extract meaningful text from URL")
+
+            rag = get_rag_memory()
+            rag.store_document(text, {
+                "filename": url.split("/")[-1] or "web-page",
+                "url": url,
+                "uploaded_at": datetime.now().isoformat()
+            })
+            
+            return {"status": "success", "url": url, "message": "Successfully ingested web content"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to ingest URL: {str(e)}")
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

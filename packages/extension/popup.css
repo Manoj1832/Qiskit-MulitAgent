@@ -1122,7 +1122,8 @@ body {
     margin-bottom: 14px;
 }
 
-.upload-area:hover, .upload-area.drag-over {
+.upload-area:hover,
+.upload-area.drag-over {
     border-color: var(--accent);
     background: rgba(99, 102, 241, 0.08);
 }
@@ -1146,6 +1147,43 @@ body {
 .upload-hint {
     font-size: 11px;
     color: var(--text3);
+}
+
+.url-ingest {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.url-ingest input {
+    flex: 1;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 12px;
+}
+
+.url-ingest input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.url-ingest button {
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    padding: 0 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.url-ingest button:hover {
+    background: var(--accent2);
 }
 
 .upload-status {
