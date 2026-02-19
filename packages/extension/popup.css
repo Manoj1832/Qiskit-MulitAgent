@@ -578,6 +578,80 @@ body {
 }
 
 /* ── Tool Buttons ────────────────────────────────────────────────────────── */
+/* ── Publish Toggle ───────────────────────────────────────────────────────── */
+.publish-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 0 4px;
+}
+
+.toggle-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+}
+
+/* The switch - the box around the slider */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 32px;
+    height: 18px;
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+/* The slider */
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg3);
+    transition: .4s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 14px;
+    width: 14px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: .4s;
+}
+
+input:checked+.slider {
+    background-color: var(--accent);
+}
+
+input:focus+.slider {
+    box-shadow: 0 0 1px var(--accent);
+}
+
+input:checked+.slider:before {
+    transform: translateX(14px);
+}
+
+/* Rounded sliders */
+.slider.round {
+    border-radius: 18px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
 .pr-agent-tools {
     display: flex;
     gap: 8px;
@@ -799,6 +873,68 @@ body {
     gap: 6px;
 }
 
+/* ── Review Categories Summary ────────────────────────────────────────────── */
+.review-categories-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 11px;
+}
+
+.category-chip {
+    padding: 2px 8px;
+    background: var(--bg3);
+    border-radius: 12px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.category-chip.has-count {
+    font-weight: 600;
+}
+
+.category-chip.bug {
+    border-left: 2px solid var(--red);
+}
+
+.category-chip.rule-violation {
+    border-left: 2px solid var(--yellow);
+}
+
+.category-chip.requirement-gap {
+    border-left: 2px solid var(--blue);
+}
+
+/* ── Section Headers ──────────────────────────────────────────────────────── */
+.issues-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin: 12px 0 8px;
+    width: fit-content;
+}
+
+.issues-header.section-action {
+    background: rgba(220, 38, 38, 0.15);
+    color: var(--red);
+}
+
+.issues-header.section-recommended {
+    background: rgba(79, 70, 229, 0.15);
+    color: var(--accent);
+}
+
+/* ── Issue Card Enhancements ──────────────────────────────────────────────── */
 .issue-card {
     padding: 10px 12px;
     background: var(--bg2);
@@ -806,33 +942,52 @@ body {
     border-radius: 8px;
     border-left: 3px solid var(--text3);
     transition: border-color 0.2s;
+    margin-bottom: 8px;
 }
 
-.issue-card:hover {
-    border-left-color: var(--accent);
+.issue-label-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
 }
 
-.issue-card.severity-critical {
-    border-left-color: var(--red);
+.issue-category-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text3);
+    display: flex;
+    align-items: center;
+    gap: 3px;
 }
 
-.issue-card.severity-major {
-    border-left-color: var(--yellow);
-}
-
-.issue-card.severity-minor {
-    border-left-color: var(--blue);
-}
-
-.issue-card.severity-suggestion {
-    border-left-color: var(--green);
+.issue-tag {
+    padding: 1px 6px;
+    background: var(--bg3);
+    border-radius: 4px;
+    font-size: 9px;
+    color: var(--text2);
+    border: 1px solid var(--border);
 }
 
 .issue-header-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 8px;
     margin-bottom: 4px;
+}
+
+.issue-title-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.issue-arrow {
+    font-size: 10px;
+    color: var(--text3);
+    transition: transform 0.2s;
 }
 
 .issue-title {

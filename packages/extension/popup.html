@@ -38,7 +38,8 @@
     <!-- No GitHub Page -->
     <div class="no-page" id="no-page">
       <div class="no-page-icon">🐙</div>
-      <p>Navigate to a GitHub <strong>Issue</strong> or <strong>Pull Request</strong> page to use SWE-Agent Copilot.</p>
+      <p>Navigate to a GitHub <strong>Issue</strong> or <strong>Pull Request</strong> page to activate SWE-Agent tools.
+      </p>
       <a href="https://github.com" target="_blank" class="link-btn">Open GitHub →</a>
     </div>
 
@@ -139,6 +140,13 @@
       </div>
 
       <!-- Tool Buttons -->
+      <div class="publish-toggle-row">
+        <label class="switch">
+          <input type="checkbox" id="publish-to-github">
+          <span class="slider round"></span>
+        </label>
+        <span class="toggle-label">Publish to GitHub 🐙</span>
+      </div>
       <div class="pr-agent-tools">
         <button class="tool-btn tool-review" id="tool-review-btn" title="Review PR">
           <span class="tool-icon">🔍</span>
@@ -187,11 +195,20 @@
             </div>
           </div>
 
+          <div class="review-categories-summary" id="review-categories-summary" style="display:none;">
+            <!-- Categories will be injected here: Bugs (3) 🐞 | Rule Violations (1) 📏 ... -->
+          </div>
+
           <div class="review-summary" id="review-summary"></div>
 
-          <div class="review-issues" id="review-issues">
-            <div class="issues-header">Key Issues</div>
-            <div class="issues-list" id="issues-list"></div>
+          <div class="review-issues" id="review-issues-action">
+            <div class="issues-header section-action">Action Required</div>
+            <div class="issues-list" id="issues-list-action"></div>
+          </div>
+
+          <div class="review-issues" id="review-issues-recommended">
+            <div class="issues-header section-recommended">Review Recommended</div>
+            <div class="issues-list" id="issues-list-recommended"></div>
           </div>
 
           <div class="review-security" id="review-security" style="display:none;">

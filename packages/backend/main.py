@@ -494,7 +494,8 @@ async def create_pull_request(
 
 # ── PR-Agent Style Tools ─────────────────────────────────────────────────────
 
-from app.tools.pr_reviewer import PRReviewerTool
+from app.engine.utils.github_helper import post_pr_comment
+from app.tools.pr_reviewer import PRReviewerTool, format_review_as_markdown
 from app.tools.code_suggestions import CodeSuggestionsTool
 from app.tools.test_generator import TestGeneratorTool
 from app.tools.pr_agent import PRAgentDispatcher, COMMAND_DESCRIPTIONS
@@ -507,6 +508,7 @@ class ReviewPRRequest(BaseModel):
     repo_name: str
     pr_number: int
     diff_content: str | None = None  # optional pre-fetched diff
+    publish_to_github: bool = False
 
 
 class SuggestFixesRequest(BaseModel):
@@ -515,6 +517,7 @@ class SuggestFixesRequest(BaseModel):
     repo_name: str
     pr_number: int
     diff_content: str | None = None
+    publish_to_github: bool = False
 
 
 class GenerateTestsRequest(BaseModel):
@@ -523,6 +526,7 @@ class GenerateTestsRequest(BaseModel):
     repo_name: str
     pr_number: int
     diff_content: str | None = None
+    publish_to_github: bool = False
 
 
 class PRAgentRequest(BaseModel):
@@ -550,11 +554,22 @@ async def review_pr(
     - Test coverage assessment
     """
     tool = PRReviewerTool()
+    repo_full = f"{request.repo_owner}/{request.repo_name}"
     result = await tool.run(
-        repo=f"{request.repo_owner}/{request.repo_name}",
+        repo=repo_full,
         pr_number=request.pr_number,
         diff_override=request.diff_content,
     )
+
+    # Done in github page?
+    if request.publish_to_github:
+        try:
+            md = format_review_as_markdown(result)
+            post_pr_comment(repo_full, request.pr_number, md)
+            logger.info(f"Published review to {repo_full}#{request.pr_number}")
+        except Exception as e:
+            logger.error(f"Failed to publish review comment: {e}")
+
     return result.model_dump()
 
 

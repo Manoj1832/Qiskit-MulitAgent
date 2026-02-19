@@ -37,6 +37,29 @@ def _get(url: str, params: Optional[dict[str, Any]] = None) -> Any:
     return resp.json()
 
 
+def _post(url: str, data: dict[str, Any]) -> Any:
+    """POST to a GitHub API URL and return parsed JSON."""
+    resp = requests.post(url, headers=_headers(), json=data, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ── Comments ─────────────────────────────────────────────────────────────────
+
+def post_pr_comment(repo: str, pr_number: int, body: str) -> dict[str, Any]:
+    """Post a comment on a Pull Request."""
+    logger.info("Posting comment on %s#%d", repo, pr_number)
+    url = f"{GITHUB_API}/repos/{repo}/issues/{pr_number}/comments"
+    return _post(url, {"body": body})
+
+
+def post_issue_comment(repo: str, issue_number: int, body: str) -> dict[str, Any]:
+    """Post a comment on an Issue."""
+    logger.info("Posting comment on %s#%d", repo, issue_number)
+    url = f"{GITHUB_API}/repos/{repo}/issues/{issue_number}/comments"
+    return _post(url, {"body": body})
+
+
 # ── Issue ─────────────────────────────────────────────────────────────────────
 
 def fetch_issue(repo: str, issue_number: int) -> dict[str, Any]:

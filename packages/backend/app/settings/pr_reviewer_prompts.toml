@@ -43,6 +43,8 @@ class KeyIssuesComponentLink(BaseModel):
     start_line: int = Field(description="The start line that corresponds to this issue in the relevant file")
     end_line: int = Field(description="The end line that corresponds to this issue in the relevant file")
     severity: str = Field(description="The severity of the issue: 'critical', 'major', 'minor', 'suggestion'")
+    category: str = Field(description="The category of the issue: 'Bug', 'Rule Violation', 'Requirement Gap', 'Security', 'Performance', 'Refactoring', 'Documentation'")
+    labels: List[str] = Field(description="A list of relevant labels: 'Correctness', 'Reliability', 'Security', 'Maintainability', 'Efficiency', 'Logic'")
 
 class Review(BaseModel):
     estimated_effort_to_review_[1-5]: int = Field(description="Estimate, on a scale of 1-5 (inclusive), the time and effort required to review this PR.")
@@ -59,26 +61,21 @@ class PRReview(BaseModel):
 Example output:
 ```yaml
 review:
-  estimated_effort_to_review_[1-5]: |
-    3
+  estimated_effort_to_review_[1-5]: 3
   score: 85
-  relevant_tests: |
-    No
+  relevant_tests: No
   summary: |
     This PR adds a new authentication middleware...
   key_issues_to_review:
-    - relevant_file: |
-        src/auth.py
-      issue_header: |
-        Possible Bug
-      issue_content: |
-        The token validation doesn't check for expiration...
+    - relevant_file: src/auth.py
+      issue_header: Possible Bug
+      issue_content: The token validation doesn't check for expiration...
       start_line: 42
       end_line: 48
-      severity: |
-        major
-  security_concerns: |
-    No
+      severity: major
+      category: Bug
+      labels: ["Correctness", "Security"]
+  security_concerns: No
 ```
 
 Answer should be a valid YAML, and nothing else. Each YAML output MUST be after a newline, with proper indent, and block scalar indicator ('|')

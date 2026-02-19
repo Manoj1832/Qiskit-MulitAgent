@@ -319,18 +319,20 @@ const toolResults = document.getElementById("tool-results");
 let currentPRInfo = null; // { owner, repo, number }
 
 function initPRAgentTools() {
-    // Only show PR-Agent tools on PR pages
-    const tab = currentTab;
-    if (!tab?.url) return;
+    // If currentPRInfo was already set (e.g. by manual URL input), use it
+    if (!currentPRInfo) {
+        const tab = currentTab;
+        if (!tab?.url) return;
 
-    const prMatch = tab.url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-    if (!prMatch) return;
+        const prMatch = tab.url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+        if (!prMatch) return;
 
-    currentPRInfo = {
-        owner: prMatch[1],
-        repo: prMatch[2],
-        number: parseInt(prMatch[3]),
-    };
+        currentPRInfo = {
+            owner: prMatch[1],
+            repo: prMatch[2],
+            number: parseInt(prMatch[3]),
+        };
+    }
 
     prAgentPanel.style.display = "block";
 
@@ -388,6 +390,9 @@ async function runTool(command) {
     }
 
     try {
+        const publishToggle = document.getElementById("publish-to-github");
+        const publishToGithub = publishToggle ? publishToggle.checked : false;
+
         const resp = await fetch(`${BACKEND_URL}${config.endpoint}`, {
             method: "POST",
             headers: {
@@ -398,6 +403,7 @@ async function runTool(command) {
                 repo_owner: currentPRInfo.owner,
                 repo_name: currentPRInfo.repo,
                 pr_number: currentPRInfo.number,
+                publish_to_github: publishToGithub,
             }),
         });
 
@@ -467,41 +473,95 @@ function renderReviewResults(data) {
     // Summary
     document.getElementById("review-summary").textContent = data.summary || "No summary available.";
 
-    // Key Issues
-    const issuesList = document.getElementById("issues-list");
-    issuesList.innerHTML = "";
+    // Categories and Issues
+    const categorySummary = document.getElementById("review-categories-summary");
+    const actionList = document.getElementById("issues-list-action");
+    const actionSection = document.getElementById("review-issues-action");
+    const recommendedList = document.getElementById("issues-list-recommended");
+    const recommendedSection = document.getElementById("review-issues-recommended");
+
+    actionList.innerHTML = "";
+    recommendedList.innerHTML = "";
+    categorySummary.innerHTML = "";
+    categorySummary.style.display = "none";
 
     const issues = data.key_issues || [];
+
     if (issues.length === 0) {
-        issuesList.innerHTML = '<div class="issue-card"><div class="issue-content">✅ No major issues found</div></div>';
-    } else {
-        issues.forEach((issue) => {
-            const severity = (issue.severity || "minor").toLowerCase();
-            const card = document.createElement("div");
-            card.className = `issue-card severity-${severity}`;
-            card.innerHTML = `
-                <div class="issue-header-row">
-                    <span class="issue-title">${escapeHtml(issue.issue_header || "Issue")}</span>
-                    <span class="severity-badge ${severity}">${severity}</span>
-                </div>
-                <div class="issue-content">${escapeHtml(issue.issue_content || "")}</div>
-                ${issue.relevant_file ? `<div class="issue-file">${escapeHtml(issue.relevant_file)} (L${issue.start_line || "?"}–L${issue.end_line || "?"})</div>` : ""}
-            `;
-            issuesList.appendChild(card);
-        });
+        actionSection.style.display = "block";
+        recommendedSection.style.display = "none";
+        actionList.innerHTML = '<div class="issue-card"><div class="issue-content">✅ No major issues found</div></div>';
+        return;
     }
 
-    // Security
+    // Process categories for summary
+    const counts = {};
+    const categoryIcons = {
+        "Bug": "🐞",
+        "Rule Violation": "📏",
+        "Requirement Gap": "📎",
+        "Security": "🔒",
+        "Performance": "⚡",
+        "Refactoring": "♻️",
+        "Documentation": "📝"
+    };
+
+    const actionRequiredCategories = ["Bug", "Security", "Rule Violation"];
+
+    issues.forEach(issue => {
+        const cat = issue.category || "Bug";
+        counts[cat] = (counts[cat] || 0) + 1;
+
+        const severity = (issue.severity || "minor").toLowerCase();
+        const isAction = actionRequiredCategories.includes(cat) || severity === "critical" || severity === "major";
+
+        const card = document.createElement("div");
+        card.className = `issue-card severity-${severity}`;
+
+        const tagsHtml = (issue.labels || []).map(label => `<span class="issue-tag">${escapeHtml(label)}</span>`).join("");
+        const icon = categoryIcons[cat] || "点";
+
+        card.innerHTML = `
+            <div class="issue-header-row">
+                <div class="issue-title-group">
+                    <span class="issue-arrow">▶</span>
+                    <span class="issue-title">${escapeHtml(issue.issue_header || "Issue")}</span>
+                </div>
+                <span class="severity-badge ${severity}">${severity}</span>
+            </div>
+            <div class="issue-content">${escapeHtml(issue.issue_content || "")}</div>
+            <div class="issue-label-row">
+                <span class="issue-category-label">${icon} ${escapeHtml(cat)}</span>
+                ${tagsHtml}
+            </div>
+            ${issue.relevant_file ? `<div class="issue-file">${escapeHtml(issue.relevant_file)} (L${issue.start_line || "?"}–L${issue.end_line || "?"})</div>` : ""}
+        `;
+
+        if (isAction) {
+            actionList.appendChild(card);
+        } else {
+            recommendedList.appendChild(card);
+        }
+    });
+
+    // Render category summary chips
+    Object.entries(counts).forEach(([cat, count]) => {
+        const icon = categoryIcons[cat] || "";
+        const chip = document.createElement("div");
+        chip.className = `category-chip has-count ${cat.toLowerCase().replace(/\s+/g, '-')}`;
+        chip.innerHTML = `${icon} ${cat} (${count})`;
+        categorySummary.appendChild(chip);
+    });
+
+    categorySummary.style.display = "flex";
+    actionSection.style.display = actionList.children.length > 0 ? "block" : "none";
+    recommendedSection.style.display = recommendedList.children.length > 0 ? "block" : "none";
+
+    // Security Section fallback
     const securitySection = document.getElementById("review-security");
-    const securityContent = document.getElementById("security-content");
-    const securityText = data.security_concerns || "No";
-    if (securityText.toLowerCase() === "no") {
-        securitySection.style.display = "none";
-    } else {
-        securitySection.style.display = "block";
-        securityContent.textContent = securityText;
-    }
+    if (securitySection) securitySection.style.display = "none";
 }
+
 
 // ── Render Suggestion Results ────────────────────────────────────────────────
 function renderSuggestionResults(data) {

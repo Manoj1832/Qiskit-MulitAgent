@@ -13,17 +13,17 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-# Resolve .env relative to the SWE agent root
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_ENV_PATH = _PROJECT_ROOT / ".env"
+# Resolve .env relative to the backend root (packages/backend)
+# config.py -> utils -> engine -> app -> backend
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_ENV_PATH = _BACKEND_ROOT / ".env"
 
-# Also try the IBM project root
-_IBM_ROOT = _PROJECT_ROOT.parent
-_IBM_ENV_PATH = _IBM_ROOT / ".env"
-
-# Load both (project-level takes precedence)
-load_dotenv(_IBM_ENV_PATH)
+# Load .env (highest precedence)
 load_dotenv(_ENV_PATH, override=True)
+
+# Also load from current working directory as fallback
+load_dotenv(override=True)
+
 
 
 def get_gemini_api_key() -> str:
