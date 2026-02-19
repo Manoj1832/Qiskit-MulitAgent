@@ -346,6 +346,9 @@ function initPRAgentTools() {
 
     // Copy tests button
     document.getElementById("copy-tests-btn").addEventListener("click", copyAllTests);
+
+    // Show and init PR Chat
+    initPRChat();
 }
 
 // ── Tab Switching ────────────────────────────────────────────────────────────
@@ -826,6 +829,156 @@ async function handleFileUpload(file) {
             uploadStatus.style.display = "none";
         }, 4000);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PR Chat — Conversational Q&A about PR code
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let chatHistory = []; // { role: 'user'|'assistant', content: string }
+
+function initPRChat() {
+    if (!currentPRInfo) return;
+
+    const chatPanel = document.getElementById("pr-chat-panel");
+    const chatInput = document.getElementById("chat-input");
+    const chatSendBtn = document.getElementById("chat-send-btn");
+    const chatSuggestions = document.getElementById("chat-suggestions");
+
+    chatPanel.style.display = "block";
+
+    // Send button
+    chatSendBtn.addEventListener("click", () => sendChatMessage());
+
+    // Enter key
+    chatInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+
+    // Quick action chips
+    chatSuggestions.querySelectorAll(".chat-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+            chatInput.value = chip.dataset.msg;
+            sendChatMessage();
+        });
+    });
+}
+
+async function sendChatMessage() {
+    const chatInput = document.getElementById("chat-input");
+    const message = chatInput.value.trim();
+    if (!message || !currentPRInfo) return;
+
+    const chatMessages = document.getElementById("chat-messages");
+    const chatTyping = document.getElementById("chat-typing");
+    const chatSendBtn = document.getElementById("chat-send-btn");
+    const chatSuggestions = document.getElementById("chat-suggestions");
+
+    // Clear welcome message on first send
+    const welcome = chatMessages.querySelector(".chat-welcome");
+    if (welcome) welcome.remove();
+
+    // Hide suggestion chips after first message
+    chatSuggestions.style.display = "none";
+
+    // Add user message bubble
+    appendChatMsg("user", message);
+    chatHistory.push({ role: "user", content: message });
+
+    // Clear input & disable
+    chatInput.value = "";
+    chatInput.disabled = true;
+    chatSendBtn.disabled = true;
+
+    // Show typing indicator
+    chatTyping.style.display = "flex";
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Get token
+    const token = await getStoredToken();
+
+    try {
+        const resp = await fetch(`${BACKEND_URL}/chat-pr`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+                repo_owner: currentPRInfo.owner,
+                repo_name: currentPRInfo.repo,
+                pr_number: currentPRInfo.number,
+                message: message,
+                history: chatHistory.slice(0, -1), // exclude current msg (sent separately)
+            }),
+        });
+
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        }
+
+        const data = await resp.json();
+        const reply = data.reply || "Sorry, I couldn't generate a response.";
+
+        // Add AI response bubble
+        appendChatMsg("assistant", reply);
+        chatHistory.push({ role: "assistant", content: reply });
+
+    } catch (err) {
+        appendChatMsg("assistant", `❌ Error: ${err.message}. Make sure the backend is running.`);
+    } finally {
+        chatTyping.style.display = "none";
+        chatInput.disabled = false;
+        chatSendBtn.disabled = false;
+        chatInput.focus();
+    }
+}
+
+function appendChatMsg(role, content) {
+    const chatMessages = document.getElementById("chat-messages");
+    const msg = document.createElement("div");
+    msg.className = `chat-msg ${role}`;
+
+    const avatar = role === "user" ? "👤" : "🤖";
+    const formattedContent = role === "assistant" ? renderMarkdownLight(content) : escapeHtml(content);
+
+    msg.innerHTML = `
+        <div class="chat-avatar">${avatar}</div>
+        <div class="chat-bubble">${formattedContent}</div>
+    `;
+
+    chatMessages.appendChild(msg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+/**
+ * Lightweight markdown renderer for chat responses.
+ * Handles: code blocks, inline code, bold, italic, lists.
+ */
+function renderMarkdownLight(text) {
+    let html = escapeHtml(text);
+
+    // Code blocks: ```lang\n...\n```
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        return `<pre><code>${code.trim()}</code></pre>`;
+    });
+
+    // Inline code: `...`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bold: **...**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Italic: *...*
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // Bullet lists: lines starting with - or *
+    html = html.replace(/^[\-\*] (.+)$/gm, '• $1');
+
+    return html;
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────
