@@ -498,6 +498,7 @@ from app.tools.pr_reviewer import PRReviewerTool
 from app.tools.code_suggestions import CodeSuggestionsTool
 from app.tools.test_generator import TestGeneratorTool
 from app.tools.pr_agent import PRAgentDispatcher, COMMAND_DESCRIPTIONS
+from app.tools.pr_chat import PRChatTool, PRChatRequest, ChatMessage
 
 
 class ReviewPRRequest(BaseModel):
@@ -628,6 +629,32 @@ async def list_pr_agent_commands():
         "commands": COMMAND_DESCRIPTIONS,
         "usage": "POST /pr-agent with {pr_url, command}",
     }
+
+
+@app.post("/chat-pr", tags=["PR-Agent Tools"])
+async def chat_pr(
+    request: PRChatRequest,
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Chat with your Pull Request code.
+
+    Send a message along with PR context and optional conversation history
+    to get AI-powered insights, explanations, reviews, descriptions,
+    and code suggestions about your PR.
+
+    Supports multi-turn conversations — include the `history` array
+    to maintain context across messages.
+    """
+    tool = PRChatTool()
+    result = await tool.run(
+        repo=f"{request.repo_owner}/{request.repo_name}",
+        pr_number=request.pr_number,
+        message=request.message,
+        history=request.history,
+        diff_override=request.diff_content,
+    )
+    return result.model_dump()
 
 @app.post("/upload-doc", tags=["Knowledge Base"])
 async def upload_document(
