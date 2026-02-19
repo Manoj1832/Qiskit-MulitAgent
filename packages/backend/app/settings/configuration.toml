@@ -1,0 +1,67 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SWE-Agent Copilot — Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+# Inspired by PR-Agent's settings architecture.
+# Only override values you need in .env or environment variables.
+
+[config]
+model = "gemini-2.0-flash"
+fallback_models = ["gemini-1.5-flash"]
+temperature = 0.2
+max_model_tokens = 32000
+ai_timeout = 120
+publish_output = true
+publish_output_progress = true
+verbosity_level = 0
+git_provider = "github"
+response_language = "en-US"
+
+[pr_reviewer]
+# /review command settings
+require_score_review = true
+require_tests_review = true
+require_estimate_effort_to_review = true
+require_security_review = true
+require_can_be_split_review = false
+num_max_findings = 7  # Increased slightly as text is cheap
+extra_instructions = ""
+persistent_comment = true
+enable_review_labels_security = true
+enable_review_labels_effort = true
+
+[pr_code_suggestions]
+# /improve command settings
+num_code_suggestions_per_chunk = 3  # Reduced from 4 to save output tokens
+suggestions_score_threshold = 3
+max_number_of_calls = 2             # Reduced from 3 to limit input token validity
+parallel_calls = true
+focus_only_on_problems = true
+extra_instructions = ""
+persistent_comment = true
+commitable_code_suggestions = false
+
+[pr_description]
+# /describe command settings
+publish_labels = true
+generate_ai_title = false
+enable_semantic_files_types = true
+extra_instructions = ""
+
+[test_generator]
+# /test command settings
+num_tests = 5
+testing_framework = "pytest"
+extra_instructions = ""
+avoid_mocks = true
+focus_on_edge_cases = true
+include_docstrings = true
+
+[issue_analyzer]
+# /analyze command settings (existing pipeline)
+max_repair_iterations = 3
+enable_auto_fix = true
+
+[github]
+deployment_type = "user"
+ratelimit_retries = 5
+base_url = "https://api.github.com"

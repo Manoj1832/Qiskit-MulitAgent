@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SWE-Agent Copilot</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+
+<body>
+  <div class="popup-container" id="popup-root">
+
+    <!-- Header -->
+    <div class="popup-header">
+      <div class="popup-brand">
+        <span class="popup-logo">🤖</span>
+        <div>
+          <div class="popup-title">SWE-Agent Copilot</div>
+          <div class="popup-subtitle">Multi-Agent Code Fixer</div>
+        </div>
+      </div>
+      <button id="theme-toggle" class="icon-btn" title="Toggle theme">🌙</button>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar" id="status-bar">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Checking backend...</span>
+    </div>
+
+    <!-- Page Detection -->
+    <div class="page-info" id="page-info" style="display:none;">
+      <div class="page-type-badge" id="page-type-badge"></div>
+      <div class="page-repo" id="page-repo"></div>
+    </div>
+
+    <!-- No GitHub Page -->
+    <div class="no-page" id="no-page">
+      <div class="no-page-icon">🐙</div>
+      <p>Navigate to a GitHub <strong>Issue</strong> or <strong>Pull Request</strong> page to use SWE-Agent Copilot.</p>
+      <a href="https://github.com" target="_blank" class="link-btn">Open GitHub →</a>
+    </div>
+
+    <!-- Analyze Panel (shown when on a GitHub issue/PR page) -->
+    <div class="analyze-panel" id="analyze-panel" style="display:none;">
+
+      <!-- Agent Pipeline Visualization -->
+      <div class="pipeline-viz">
+        <div class="pipeline-step" id="step-sentry">
+          <div class="step-icon">🔍</div>
+          <div class="step-label">Sentry</div>
+          <div class="step-status" id="step-sentry-status"></div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-step" id="step-strategist">
+          <div class="step-icon">🧠</div>
+          <div class="step-label">Strategist</div>
+          <div class="step-status" id="step-strategist-status"></div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-step" id="step-architect">
+          <div class="step-icon">📐</div>
+          <div class="step-label">Architect</div>
+          <div class="step-status" id="step-architect-status"></div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-step" id="step-developer">
+          <div class="step-icon">💻</div>
+          <div class="step-label">Developer</div>
+          <div class="step-status" id="step-developer-status"></div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-step" id="step-validator">
+          <div class="step-icon">✅</div>
+          <div class="step-label">Validator</div>
+          <div class="step-status" id="step-validator-status"></div>
+        </div>
+      </div>
+
+      <!-- Analyze Button -->
+      <button class="analyze-btn" id="analyze-btn">
+        <span class="analyze-btn-icon">🚀</span>
+        <span id="analyze-btn-text">Analyze with SWE-Agent</span>
+      </button>
+
+      <!-- Results (hidden until complete) -->
+      <div class="results-section" id="results-section" style="display:none;">
+
+        <!-- Classification -->
+        <div class="result-row">
+          <span class="result-label">Classification</span>
+          <span class="result-value badge" id="result-classification"></span>
+        </div>
+
+        <!-- Severity / Priority -->
+        <div class="result-row">
+          <span class="result-label">Severity</span>
+          <span class="result-value" id="result-severity"></span>
+        </div>
+
+        <!-- Confidence -->
+        <div class="confidence-section">
+          <div class="confidence-header">
+            <span>Confidence Score</span>
+            <strong id="confidence-pct">0%</strong>
+          </div>
+          <div class="confidence-bar">
+            <div class="confidence-fill" id="confidence-fill"></div>
+          </div>
+        </div>
+
+        <!-- Root Cause -->
+        <div class="root-cause-section">
+          <div class="section-label">Root Cause</div>
+          <div class="root-cause-text" id="root-cause-text"></div>
+        </div>
+
+        <!-- Patch Actions -->
+        <div class="patch-actions">
+          <button class="action-btn" id="popup-copy-patch">📋 Copy Patch</button>
+          <button class="action-btn" id="popup-download-patch">⬇️ Download</button>
+          <button class="action-btn action-btn-primary" id="popup-open-panel">🔍 Open Panel</button>
+        </div>
+      </div>
+
+      <!-- Live Log -->
+      <div class="live-log" id="live-log" style="display:none;">
+        <div class="live-log-header">Live Agent Log</div>
+        <div class="live-log-body" id="live-log-body"></div>
+      </div>
+
+    </div>
+
+    <!-- ───── PR-Agent Tools Panel ───── -->
+    <div class="pr-agent-panel" id="pr-agent-panel" style="display:none;">
+      <div class="section-divider">
+        <span class="divider-text">⚡ PR-Agent Tools</span>
+      </div>
+
+      <!-- Tool Buttons -->
+      <div class="pr-agent-tools">
+        <button class="tool-btn tool-review" id="tool-review-btn" title="Review PR">
+          <span class="tool-icon">🔍</span>
+          <span class="tool-label">/review</span>
+        </button>
+        <button class="tool-btn tool-suggest" id="tool-suggest-btn" title="Code Suggestions">
+          <span class="tool-icon">💡</span>
+          <span class="tool-label">/improve</span>
+        </button>
+        <button class="tool-btn tool-test" id="tool-test-btn" title="Generate Tests">
+          <span class="tool-icon">🧪</span>
+          <span class="tool-label">/test</span>
+        </button>
+      </div>
+
+      <!-- Tool Loading Indicator -->
+      <div class="tool-loading" id="tool-loading" style="display:none;">
+        <div class="tool-spinner"></div>
+        <span id="tool-loading-text">Running /review...</span>
+      </div>
+
+      <!-- Tool Results Tabs -->
+      <div class="tool-results" id="tool-results" style="display:none;">
+
+        <!-- Tab Navigation -->
+        <div class="result-tabs" id="result-tabs">
+          <button class="result-tab active" data-tab="review-tab">Review</button>
+          <button class="result-tab" data-tab="suggest-tab">Suggestions</button>
+          <button class="result-tab" data-tab="test-tab">Tests</button>
+        </div>
+
+        <!-- Review Results Tab -->
+        <div class="tab-content active" id="review-tab">
+          <div class="review-scores">
+            <div class="score-card">
+              <div class="score-value" id="review-score">—</div>
+              <div class="score-label">Quality Score</div>
+            </div>
+            <div class="score-card">
+              <div class="score-value" id="review-effort">—</div>
+              <div class="score-label">Effort (1-5)</div>
+            </div>
+            <div class="score-card">
+              <div class="score-value" id="review-tests-badge">—</div>
+              <div class="score-label">Has Tests</div>
+            </div>
+          </div>
+
+          <div class="review-summary" id="review-summary"></div>
+
+          <div class="review-issues" id="review-issues">
+            <div class="issues-header">Key Issues</div>
+            <div class="issues-list" id="issues-list"></div>
+          </div>
+
+          <div class="review-security" id="review-security" style="display:none;">
+            <div class="security-header">🔒 Security Concerns</div>
+            <div class="security-content" id="security-content"></div>
+          </div>
+        </div>
+
+        <!-- Suggestions Results Tab -->
+        <div class="tab-content" id="suggest-tab">
+          <div class="suggestions-count" id="suggestions-count">0 suggestions</div>
+          <div class="suggestions-list" id="suggestions-list"></div>
+        </div>
+
+        <!-- Tests Results Tab -->
+        <div class="tab-content" id="test-tab">
+          <div class="tests-summary" id="tests-summary"></div>
+          <div class="tests-code" id="tests-code"></div>
+          <button class="action-btn" id="copy-tests-btn" style="display:none;">
+            📋 Copy All Tests
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="popup-footer">
+      <div class="footer-info" id="footer-info">
+        <span id="token-status">🔑 Checking auth...</span>
+      </div>
+      <a href="http://localhost:8000/docs" target="_blank" class="footer-link">API Docs ↗</a>
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

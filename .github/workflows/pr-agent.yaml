@@ -1,0 +1,374 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SWE-Agent PR Review — GitHub Action
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Automatically runs PR-Agent style review on every pull request.
+# Posts review comments, code suggestions, and optional test generation.
+#
+# Requirements:
+#   - GEMINI_API_KEY secret in repository settings
+#   - GITHUB_TOKEN is automatically provided
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: PR-Agent Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+
+  # ── Auto-Review on PR Open ──────────────────────────────────────────────────
+  auto-review:
+    name: Auto PR Review
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/review'))
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: packages/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r packages/backend/requirements.txt
+
+      - name: Get PR diff
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            PR_NUMBER=${{ github.event.pull_request.number }}
+          else
+            PR_NUMBER=${{ github.event.issue.number }}
+          fi
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+
+          # Fetch diff
+          gh pr diff ${PR_NUMBER} > /tmp/pr.diff 2>/dev/null || true
+          echo "diff_file=/tmp/pr.diff" >> $GITHUB_OUTPUT
+
+      - name: Run PR Review
+        id: review
+        working-directory: packages/backend
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PYTHONPATH: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/packages/backend
+        run: |
+          python -c "
+          import asyncio, json, sys
+          sys.path.insert(0, '.')
+          from app.tools.pr_reviewer import PRReviewerTool
+
+          async def main():
+              tool = PRReviewerTool()
+              result = await tool.run(
+                  repo='${{ github.repository }}',
+                  pr_number=${{ steps.diff.outputs.pr_number }},
+              )
+              # Write result to file
+              with open('/tmp/review_result.json', 'w') as f:
+                  json.dump(result.model_dump(), f, indent=2)
+              return result
+
+          result = asyncio.run(main())
+          print(f'Score: {result.score}, Issues: {len(result.key_issues)}')
+          "
+
+      - name: Post Review Comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 << 'SCRIPT'
+          import json, os, subprocess
+
+          # Read review result
+          with open('/tmp/review_result.json') as f:
+              review = json.load(f)
+
+          # Build markdown comment
+          score = review.get('score', 0)
+          effort = review.get('estimated_effort', '?')
+          summary = review.get('summary', 'No summary.')
+          issues = review.get('key_issues', [])
+          security = review.get('security_concerns', 'No')
+
+          # Score emoji
+          if score >= 80:
+              score_emoji = '🟢'
+          elif score >= 50:
+              score_emoji = '🟡'
+          else:
+              score_emoji = '🔴'
+
+          comment = f"""## 🤖 SWE-Agent PR Review
+
+          | Metric | Value |
+          |--------|-------|
+          | **Quality Score** | {score_emoji} {score}/100 |
+          | **Review Effort** | {'⭐' * effort} ({effort}/5) |
+          | **Security** | {'🔒 ' + security if security.lower() != 'no' else '✅ No concerns'} |
+
+          ### 📝 Summary
+          {summary}
+          """
+
+          if issues:
+              comment += "\n### ⚠️ Key Issues\n"
+              for i, issue in enumerate(issues, 1):
+                  severity = issue.get('severity', 'minor')
+                  sev_emoji = {'critical': '🔴', 'major': '🟠', 'minor': '🔵', 'suggestion': '💡'}.get(severity, '⚪')
+                  file = issue.get('relevant_file', '')
+                  header = issue.get('issue_header', '')
+                  content = issue.get('issue_content', '')
+                  start = issue.get('start_line', '')
+                  end = issue.get('end_line', '')
+
+                  comment += f"\n{i}. {sev_emoji} **{header}** ({severity})\n"
+                  comment += f"   {content}\n"
+                  if file:
+                      comment += f"   📁 `{file}`"
+                      if start:
+                          comment += f" (L{start}–L{end})"
+                      comment += "\n"
+
+          comment += "\n---\n*Powered by SWE-Agent Chrome Copilot PR-Agent*"
+
+          # Post comment via gh CLI
+          pr_number = os.environ.get('PR_NUMBER', '${{ steps.diff.outputs.pr_number }}')
+          with open('/tmp/comment.md', 'w') as f:
+              f.write(comment)
+
+          subprocess.run([
+              'gh', 'pr', 'comment', str(pr_number),
+              '--body-file', '/tmp/comment.md'
+          ], check=True)
+          SCRIPT
+
+
+  # ── Slash Command: /improve ─────────────────────────────────────────────────
+  code-suggestions:
+    name: Code Suggestions
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/improve')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: packages/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r packages/backend/requirements.txt
+
+      - name: Run Code Suggestions
+        working-directory: packages/backend
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PYTHONPATH: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/packages/backend
+        run: |
+          python -c "
+          import asyncio, json, sys
+          sys.path.insert(0, '.')
+          from app.tools.code_suggestions import CodeSuggestionsTool
+
+          async def main():
+              tool = CodeSuggestionsTool()
+              result = await tool.run(
+                  repo='${{ github.repository }}',
+                  pr_number=${{ github.event.issue.number }},
+              )
+              with open('/tmp/suggestions_result.json', 'w') as f:
+                  json.dump(result.model_dump(), f, indent=2)
+              return result
+
+          result = asyncio.run(main())
+          print(f'Suggestions: {result.total_suggestions}')
+          "
+
+      - name: Post Suggestions Comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 << 'SCRIPT'
+          import json, subprocess
+
+          with open('/tmp/suggestions_result.json') as f:
+              data = json.load(f)
+
+          suggestions = data.get('suggestions', [])
+          comment = "## 💡 SWE-Agent Code Suggestions\n\n"
+
+          if not suggestions:
+              comment += "✅ No suggestions — code looks great!\n"
+          else:
+              comment += f"Found **{len(suggestions)}** suggestion(s):\n\n"
+              for i, s in enumerate(suggestions, 1):
+                  label = s.get('label', 'enhancement')
+                  score = s.get('score', '?')
+                  summary = s.get('one_sentence_summary', s.get('suggestion_content', ''))
+                  existing = s.get('existing_code', '')
+                  improved = s.get('improved_code', '')
+                  file = s.get('relevant_file', '')
+                  lang = s.get('language', '')
+
+                  comment += f"### {i}. {summary}\n"
+                  comment += f"**Category:** `{label}` | **Score:** {score}/10"
+                  if file:
+                      comment += f" | **File:** `{file}`"
+                  comment += "\n\n"
+
+                  if existing or improved:
+                      if existing:
+                          comment += f"```{lang}\n# Before:\n{existing}\n```\n"
+                      if improved:
+                          comment += f"```{lang}\n# After:\n{improved}\n```\n\n"
+
+          comment += "---\n*Powered by SWE-Agent Chrome Copilot PR-Agent*"
+
+          with open('/tmp/comment.md', 'w') as f:
+              f.write(comment)
+
+          subprocess.run([
+              'gh', 'pr', 'comment', '${{ github.event.issue.number }}',
+              '--body-file', '/tmp/comment.md'
+          ], check=True)
+          SCRIPT
+
+
+  # ── Slash Command: /test ────────────────────────────────────────────────────
+  generate-tests:
+    name: Generate Tests
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/test')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: packages/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r packages/backend/requirements.txt
+
+      - name: Run Test Generator
+        working-directory: packages/backend
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PYTHONPATH: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/packages/backend
+        run: |
+          python -c "
+          import asyncio, json, sys
+          sys.path.insert(0, '.')
+          from app.tools.test_generator import TestGeneratorTool
+
+          async def main():
+              tool = TestGeneratorTool()
+              result = await tool.run(
+                  repo='${{ github.repository }}',
+                  pr_number=${{ github.event.issue.number }},
+              )
+              with open('/tmp/tests_result.json', 'w') as f:
+                  json.dump(result.model_dump(), f, indent=2)
+              return result
+
+          result = asyncio.run(main())
+          print(f'Tests: {result.total_tests}')
+          "
+
+      - name: Post Tests Comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 << 'SCRIPT'
+          import json, subprocess
+
+          with open('/tmp/tests_result.json') as f:
+              data = json.load(f)
+
+          suites = data.get('test_suites', [])
+          total = data.get('total_tests', 0)
+
+          comment = f"## 🧪 SWE-Agent Generated Tests\n\n"
+          comment += f"Generated **{total}** test(s) in **{len(suites)}** suite(s).\n\n"
+
+          for suite in suites:
+              fname = suite.get('test_file_name', 'test_generated.py')
+              framework = suite.get('framework', 'pytest')
+              lang = suite.get('language', 'python')
+              cases = suite.get('test_cases', [])
+
+              comment += f"### 📄 `{fname}` ({framework})\n\n"
+
+              full_code = suite.get('setup_code', '')
+              for tc in cases:
+                  code = tc.get('test_code', '')
+                  if code:
+                      full_code += '\n\n' + code
+              teardown = suite.get('teardown_code', '')
+              if teardown:
+                  full_code += '\n\n' + teardown
+
+              comment += f"<details>\n<summary>View {len(cases)} test(s)</summary>\n\n"
+              comment += f"```{lang}\n{full_code.strip()}\n```\n\n"
+              comment += "</details>\n\n"
+
+          comment += "---\n*Powered by SWE-Agent Chrome Copilot PR-Agent*"
+
+          with open('/tmp/comment.md', 'w') as f:
+              f.write(comment)
+
+          subprocess.run([
+              'gh', 'pr', 'comment', '${{ github.event.issue.number }}',
+              '--body-file', '/tmp/comment.md'
+          ], check=True)
+          SCRIPT

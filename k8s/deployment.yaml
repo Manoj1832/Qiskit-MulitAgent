@@ -1,0 +1,294 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SWE-Agent Chrome Copilot — Kubernetes Deployment
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# This file defines the complete K8s stack:
+#   1. Namespace
+#   2. ConfigMap   (non-secret settings)
+#   3. Secret      (API keys, tokens)
+#   4. Deployment  (backend pods with health checks)
+#   5. Service     (ClusterIP for internal access)
+#   6. Ingress     (external HTTPS access)
+#   7. HPA         (auto-scaling)
+#
+# Apply:  kubectl apply -f k8s/deployment.yaml
+# ═══════════════════════════════════════════════════════════════════════════════
+
+---
+# ── 1. Namespace ──────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: swe-agent
+  labels:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/part-of: swe-agent-copilot
+
+---
+# ── 2. ConfigMap (non-secret configuration) ───────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swe-agent-config
+  namespace: swe-agent
+  labels:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/component: backend
+data:
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  MODEL_NAME: "gemini-2.0-flash"
+  MAX_REPAIR_ITERATIONS: "3"
+  PYTHONPATH: "/app"
+  LOG_LEVEL: "info"
+  # PR-Agent tool settings
+  SWEAGENT_CONFIG__MODEL: "gemini-2.0-flash"
+  SWEAGENT_CONFIG__MAX_MODEL_TOKENS: "32000"
+  SWEAGENT_PR_REVIEWER__NUM_MAX_FINDINGS: "5"
+  SWEAGENT_PR_CODE_SUGGESTIONS__MAX_NUMBER_OF_CALLS: "3"
+
+---
+# ── 3. Secret (sensitive values — base64 encoded) ─────────────────────────────
+# IMPORTANT: Replace placeholder values before deploying!
+# Generate: echo -n 'your-secret' | base64
+apiVersion: v1
+kind: Secret
+metadata:
+  name: swe-agent-secrets
+  namespace: swe-agent
+  labels:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/component: backend
+type: Opaque
+data:
+  # Replace these with your actual base64-encoded secrets
+  # echo -n 'your-github-token' | base64
+  GITHUB_TOKEN: "REPLACE_WITH_BASE64_ENCODED_TOKEN"
+  # echo -n 'your-gemini-api-key' | base64
+  GEMINI_API_KEY: "REPLACE_WITH_BASE64_ENCODED_KEY"
+  # echo -n 'your-jwt-secret' | base64
+  JWT_SECRET: "REPLACE_WITH_BASE64_ENCODED_SECRET"
+  # echo -n 'your-extension-api-key' | base64
+  EXTENSION_API_KEY: "REPLACE_WITH_BASE64_ENCODED_KEY"
+
+---
+# ── 4. Deployment ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: swe-agent-backend
+  namespace: swe-agent
+  labels:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: swe-agent
+      app.kubernetes.io/component: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: swe-agent
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/health"
+    spec:
+      serviceAccountName: default
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: backend
+          image: swe-agent-backend:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # Environment from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: swe-agent-config
+            - secretRef:
+                name: swe-agent-secrets
+
+          # Resource management
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+
+          # Liveness: Is the process alive?
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          # Readiness: Can it accept traffic?
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 2
+
+          # Startup: Allow time for ML model loading
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+
+          # Volume mounts
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: app-cache
+              mountPath: /app/.cache
+
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+        - name: app-cache
+          emptyDir:
+            sizeLimit: 1Gi
+
+      # Pod topology spread for HA
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: swe-agent
+
+---
+# ── 5. Service (ClusterIP) ───────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: swe-agent-backend
+  namespace: swe-agent
+  labels:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/component: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+
+---
+# ── 6. Ingress (HTTPS termination) ───────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: swe-agent-ingress
+  namespace: swe-agent
+  labels:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/component: backend
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Enable CORS for Chrome Extension
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type"
+    # TLS (uncomment when using cert-manager)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  # Uncomment for HTTPS:
+  # tls:
+  #   - hosts:
+  #       - swe-agent.example.com
+  #     secretName: swe-agent-tls
+  rules:
+    - host: swe-agent.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: swe-agent-backend
+                port:
+                  name: http
+
+---
+# ── 7. Horizontal Pod Autoscaler ──────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: swe-agent-hpa
+  namespace: swe-agent
+  labels:
+    app.kubernetes.io/name: swe-agent
+    app.kubernetes.io/component: backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: swe-agent-backend
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

@@ -1,0 +1,131 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SWE-Agent Chrome Copilot — Docker Compose
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   Development:  docker compose up                  (default profile)
+#   Production:   docker compose --profile prod up
+#   Tests:        docker compose --profile test up --exit-code-from test-runner
+#   Full stack:   docker compose --profile prod --profile redis up -d
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── Backend API (Development — hot reload) ──────────────────────────────────
+  backend:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: swe-agent-backend-dev
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Mount source for hot-reload
+      - ./packages/backend/main.py:/app/main.py
+      - ./packages/backend/app:/app/app
+    env_file:
+      - ./packages/backend/.env
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - swe-agent-net
+
+
+  # ── Backend API (Production - optimized) ────────────────────────────────────
+  backend-prod:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: swe-agent-backend
+    profiles:
+      - prod
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file:
+      - ./packages/backend/.env
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - PYTHONPATH=/app
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - swe-agent-net
+
+
+  # ── Test Runner ─────────────────────────────────────────────────────────────
+  test-runner:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+      target: test
+    container_name: swe-agent-tests
+    profiles:
+      - test
+    env_file:
+      - ./packages/backend/.env
+    environment:
+      - PYTHONPATH=/app
+      - TESTING=1
+    networks:
+      - swe-agent-net
+
+
+  # ── Redis (optional cache / rate limiting) ──────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: swe-agent-redis
+    profiles:
+      - redis
+      - prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - swe-agent-net
+
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  redis-data:
+    driver: local
+
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  swe-agent-net:
+    driver: bridge
+    name: swe-agent-network

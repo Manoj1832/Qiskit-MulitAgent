@@ -1,0 +1,128 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SWE-Agent Chrome Copilot — GitHub Action Definition
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Use this action in other repositories:
+#
+#   - uses: your-org/IBM-SWE_BENCH@main
+#     with:
+#       gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+#       command: review
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: "SWE-Agent PR Copilot"
+description: "AI-powered PR review, code suggestions, and test generation"
+author: "SWE-Agent Team"
+
+branding:
+  icon: "cpu"
+  color: "purple"
+
+inputs:
+  gemini_api_key:
+    description: "Google Gemini API key for AI model access"
+    required: true
+
+  github_token:
+    description: "GitHub token for API access (default: github.token)"
+    required: false
+    default: ${{ github.token }}
+
+  command:
+    description: "Command to run: review, improve, test, or all"
+    required: false
+    default: "review"
+
+  model:
+    description: "AI model to use"
+    required: false
+    default: "gemini-2.0-flash"
+
+  max_findings:
+    description: "Maximum number of issues to report in review"
+    required: false
+    default: "5"
+
+  num_suggestions:
+    description: "Maximum number of code suggestions per chunk"
+    required: false
+    default: "4"
+
+  num_tests:
+    description: "Number of tests to generate"
+    required: false
+    default: "5"
+
+  extra_instructions:
+    description: "Additional instructions for the AI model"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        pip install --upgrade pip
+        pip install -r ${{ github.action_path }}/packages/backend/requirements.txt
+
+    - name: Run SWE-Agent Command
+      shell: bash
+      env:
+        GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        SWEAGENT_CONFIG__MODEL: ${{ inputs.model }}
+        SWEAGENT_PR_REVIEWER__NUM_MAX_FINDINGS: ${{ inputs.max_findings }}
+        SWEAGENT_PR_CODE_SUGGESTIONS__NUM_CODE_SUGGESTIONS_PER_CHUNK: ${{ inputs.num_suggestions }}
+        SWEAGENT_TEST_GENERATOR__NUM_TESTS: ${{ inputs.num_tests }}
+        SWEAGENT_PR_REVIEWER__EXTRA_INSTRUCTIONS: ${{ inputs.extra_instructions }}
+        PYTHONPATH: ${{ github.action_path }}/packages/backend
+      run: |
+        cd ${{ github.action_path }}/packages/backend
+
+        PR_NUMBER=${{ github.event.pull_request.number || github.event.issue.number }}
+        REPO=${{ github.repository }}
+        COMMAND=${{ inputs.command }}
+
+        python -c "
+        import asyncio, json, sys
+        sys.path.insert(0, '.')
+
+        async def main():
+            command = '${COMMAND}'
+            repo = '${REPO}'
+            pr_number = int('${PR_NUMBER}')
+
+            if command in ('review', 'all'):
+                from app.tools.pr_reviewer import PRReviewerTool
+                tool = PRReviewerTool()
+                result = await tool.run(repo=repo, pr_number=pr_number)
+                with open('/tmp/review.json', 'w') as f:
+                    json.dump(result.model_dump(), f, indent=2)
+                print(f'Review: score={result.score}, issues={len(result.key_issues)}')
+
+            if command in ('improve', 'all'):
+                from app.tools.code_suggestions import CodeSuggestionsTool
+                tool = CodeSuggestionsTool()
+                result = await tool.run(repo=repo, pr_number=pr_number)
+                with open('/tmp/suggestions.json', 'w') as f:
+                    json.dump(result.model_dump(), f, indent=2)
+                print(f'Suggestions: {result.total_suggestions}')
+
+            if command in ('test', 'all'):
+                from app.tools.test_generator import TestGeneratorTool
+                tool = TestGeneratorTool()
+                result = await tool.run(repo=repo, pr_number=pr_number)
+                with open('/tmp/tests.json', 'w') as f:
+                    json.dump(result.model_dump(), f, indent=2)
+                print(f'Tests: {result.total_tests}')
+
+        asyncio.run(main())
+        "
