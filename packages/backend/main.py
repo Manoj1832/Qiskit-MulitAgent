@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -629,6 +629,46 @@ async def list_pr_agent_commands():
         "usage": "POST /pr-agent with {pr_url, command}",
     }
 
+@app.post("/upload-doc", tags=["Knowledge Base"])
+async def upload_document(
+    file: UploadFile = File(...),
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Upload a document (PDF, Markdown, or Text) to the RAG knowledge base.
+    The agent will use this information to better understand the codebase or domain.
+    """
+    content = await file.read()
+    filename = file.filename
+    text = ""
+
+    if filename.endswith(".pdf"):
+        from app.algo.pdf_utils import extract_text_from_pdf
+        text = extract_text_from_pdf(content)
+        if not text:
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+    else:
+        # Assume text/markdown
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="Only UTF-8 encoded text or PDF files are supported")
+
+    rag = get_rag_memory()
+    rag.store_document(text, {"filename": filename, "uploaded_at": datetime.now().isoformat()})
+    
+    return {"status": "success", "filename": filename, "message": f"Successfully ingested {filename}"}
+
+
+@app.get("/list-docs", tags=["Knowledge Base"])
+async def list_documents(_user: dict = Depends(get_current_user)):
+    """List all documents currently in the RAG knowledge base."""
+    rag = get_rag_memory()
+    docs = rag.list_documents()
+    return {"documents": [
+        {"filename": d["metadata"]["filename"], "uploaded_at": d["metadata"]["uploaded_at"]}
+        for d in docs
+    ]}
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 

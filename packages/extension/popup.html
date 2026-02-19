@@ -218,6 +218,40 @@
       </div>
     </div>
 
+    <!-- ───── Knowledge Base Panel ───── -->
+    <div class="kb-panel" id="kb-panel">
+      <div class="section-divider">
+        <span class="divider-text">📚 Knowledge Base</span>
+      </div>
+
+      <!-- Drag & Drop Area -->
+      <div class="upload-area" id="drop-zone">
+        <div class="upload-icon">📄</div>
+        <div class="upload-text">
+          <strong>Drag & Drop</strong> or <span>Click to Upload</span>
+        </div>
+        <div class="upload-hint">PDF, MD, or TXT (Max 10MB)</div>
+        <input type="file" id="file-input" hidden accept=".pdf,.md,.txt" />
+      </div>
+
+      <!-- Upload Progress (hidden) -->
+      <div class="upload-status" id="upload-status" style="display:none;">
+        <div class="spinner-small"></div>
+        <span id="upload-status-text">Uploading...</span>
+      </div>
+
+      <!-- Document List -->
+      <div class="kb-docs">
+        <div class="kb-header">
+          <span>Stored Documents</span>
+          <button id="refresh-docs" class="text-btn">Refresh</button>
+        </div>
+        <div class="docs-list" id="docs-list-kb">
+          <div class="empty-docs">No documents uploaded yet.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings -->
     <div class="popup-footer">
       <div class="footer-info" id="footer-info">

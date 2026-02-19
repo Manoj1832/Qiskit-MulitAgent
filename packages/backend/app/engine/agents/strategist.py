@@ -150,6 +150,14 @@ Return ONLY the JSON object. No markdown fences, no commentary.
                     f"\nRelevant directories: {', '.join(sentry.repo_structure[:15])}"
                 )
 
+        # Inject RAG context
+        from app.services.rag_service import get_rag_memory
+        rag = get_rag_memory()
+        query = f"{issue.title} {issue.body[:300]}"
+        rag_context = rag.build_context_prompt(query)
+        if rag_context:
+            parts.append(f"\n{rag_context}")
+
         return "\n".join(parts)
 
     def parse_response(self, raw: dict[str, Any]) -> StrategistOutput:

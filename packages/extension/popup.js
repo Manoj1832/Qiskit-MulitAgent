@@ -600,6 +600,145 @@ function copyAllTests() {
     });
 }
 
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async () => {
+    await Promise.all([checkBackendHealth(), detectCurrentPage()]);
+    checkTokenStatus();
+    initPRAgentTools();
+    initKnowledgeBase();
+})();
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Knowledge Base — File Upload & Documentation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const dropZone = document.getElementById("drop-zone");
+const fileInput = document.getElementById("file-input");
+const docsListKB = document.getElementById("docs-list-kb");
+const uploadStatus = document.getElementById("upload-status");
+const uploadStatusText = document.getElementById("upload-status-text");
+
+function initKnowledgeBase() {
+    // 1. Load initial docs
+    refreshDocs();
+
+    // 2. Refresh button
+    document.getElementById("refresh-docs").addEventListener("click", refreshDocs);
+
+    // 3. Drag & Drop events
+    dropZone.addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => {
+        if (e.target.files.length > 0) handleFileUpload(e.target.files[0]);
+    });
+
+    ["dragenter", "dragover", "dragleave", "drop"].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
+
+    ["dragenter", "dragover"].forEach(name => {
+        dropZone.addEventListener(name, () => dropZone.classList.add("drag-over"));
+    });
+
+    ["dragleave", "drop"].forEach(name => {
+        dropZone.addEventListener(name, () => dropZone.classList.remove("drag-over"));
+    });
+
+    dropZone.addEventListener("drop", (e) => {
+        const dt = e.dataTransfer;
+        const file = dt.files[0];
+        if (file) handleFileUpload(file);
+    });
+}
+
+async function refreshDocs() {
+    const token = await getStoredToken();
+    try {
+        const resp = await fetch(`${BACKEND_URL}/list-docs`, {
+            headers: (token ? { Authorization: `Bearer ${token}` } : {}),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        renderDocsList(data.documents || []);
+    } catch (err) {
+        console.error("Failed to fetch docs:", err);
+    }
+}
+
+function renderDocsList(docs) {
+    if (docs.length === 0) {
+        docsListKB.innerHTML = '<div class="empty-docs">No documents uploaded yet.</div>';
+        return;
+    }
+
+    docsListKB.innerHTML = "";
+    docs.forEach(doc => {
+        const date = new Date(doc.uploaded_at).toLocaleDateString();
+        const icon = doc.filename.endsWith(".pdf") ? "📕" : "📄";
+        const item = document.createElement("div");
+        item.className = "doc-item";
+        item.innerHTML = `
+            <div class="doc-icon">${icon}</div>
+            <div class="doc-info">
+                <div class="doc-name" title="${escapeHtml(doc.filename)}">${escapeHtml(doc.filename)}</div>
+                <div class="doc-date">Uploaded on ${date}</div>
+            </div>
+        `;
+        docsListKB.appendChild(item);
+    });
+}
+
+async function handleFileUpload(file) {
+    const validTypes = [".pdf", ".md", ".txt"];
+    const extension = "." + file.name.split(".").pop().toLowerCase();
+
+    if (!validTypes.includes(extension)) {
+        alert("Invalid file type. Please upload PDF, MD, or TXT.");
+        return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+        alert("File too large. Max 10MB.");
+        return;
+    }
+
+    const token = await getStoredToken();
+    uploadStatus.style.display = "flex";
+    uploadStatusText.textContent = `Uploading ${file.name}...`;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const resp = await fetch(`${BACKEND_URL}/upload-doc`, {
+            method: "POST",
+            headers: (token ? { Authorization: `Bearer ${token}` } : {}),
+            body: formData,
+        });
+
+        if (!resp.ok) {
+            const errData = await resp.json();
+            throw new Error(errData.detail || "Upload failed");
+        }
+
+        uploadStatusText.textContent = "✅ Success!";
+        setTimeout(() => {
+            uploadStatus.style.display = "none";
+        }, 2000);
+
+        refreshDocs();
+    } catch (err) {
+        uploadStatusText.textContent = `❌ ${err.message}`;
+        setTimeout(() => {
+            uploadStatus.style.display = "none";
+        }, 4000);
+    }
+}
+
 // ── Utility ──────────────────────────────────────────────────────────────────
 function escapeHtml(text) {
     const div = document.createElement("div");
